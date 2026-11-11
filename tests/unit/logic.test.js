@@ -3,7 +3,8 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   dayStr, mondayStr, weekdayIndex, esc, blank, normalize, rollover, daysLabel, nextNoteStatus,
-  weekTarget, countSince, goalStreak, toggleLog, historyByDay, routineConsistency
+  weekTarget, countSince, goalStreak, toggleLog, historyByDay, routineConsistency,
+  addDays, quickDate, dateLabel, upcoming
 } from '../../public/js/logic.js';
 
 // Fixed local "now": Wednesday 11 Nov 2026, noon.
@@ -56,6 +57,13 @@ describe('normalize', () => {
     assert.equal(s.notes[1].status, 'want');
     assert.equal(s.goals[0].area, 'Personal');
   });
+  test('adds date: null to old tasks and keeps valid dates', () => {
+    const s = normalize({ tasks: [{ id: 'a', title: 'old', list: 'master' }, { id: 'b', list: 'master', date: '2026-11-20' }, { id: 'c', list: 'master', date: 'soon' }] });
+    assert.equal(s.tasks[0].date, null);
+    assert.equal(s.tasks[1].date, '2026-11-20');
+    assert.equal(s.tasks[2].date, null);
+    assert.equal(s.v, 1);
+  });
   test('blank() returns independent copies', () => {
     const a = blank(), b = blank();
     a.areas.push('X');
@@ -87,6 +95,63 @@ describe('rollover', () => {
     rollover(s, NOW);
     assert.deepEqual(s.tasks.map(t => t.id), ['new']);
     assert.deepEqual(Object.keys(s.routineDone), [k(10)]);
+  });
+});
+
+describe('scheduled dates', () => {
+  const t = (id, list, date, extra) => Object.assign({ id, title: id, list, date, steps: [], created: 0 }, extra);
+
+  test('rollover moves tasks dated today or earlier into Today, even past the limit', () => {
+    const s = blank();
+    s.todayLimit = 3;
+    s.tasks = [t('a', 'today', null), t('b', 'today', null), t('c', 'today', null),
+      t('due', 'master', k(0)), t('late', 'master', k(3), { week: true })];
+    rollover(s, NOW);
+    assert.equal(s.tasks.find(x => x.id === 'due').list, 'today');
+    assert.equal(s.tasks.find(x => x.id === 'late').list, 'today');
+    assert.equal(s.tasks.filter(x => x.list === 'today').length, 5);
+  });
+  test('rollover leaves future-dated and finished tasks where they are', () => {
+    const s = blank();
+    s.tasks = [t('future', 'master', '2026-11-12'), t('done', 'done', k(0), { doneAt: NOW.getTime() })];
+    rollover(s, NOW);
+    assert.equal(s.tasks[0].list, 'master');
+    assert.equal(s.tasks[1].list, 'done');
+  });
+  test('rollover sends a dated Not today task back to All tasks, not into Today', () => {
+    const s = blank();
+    s.tasks = [t('skip', 'nottoday', k(1))];
+    rollover(s, NOW);
+    assert.equal(s.tasks[0].list, 'master');
+  });
+  test('addDays crosses months and years', () => {
+    assert.equal(addDays('2026-11-30', 1), '2026-12-01');
+    assert.equal(addDays('2026-12-31', 1), '2027-01-01');
+    assert.equal(addDays('2026-03-01', -1), '2026-02-28');
+  });
+  test('quick dates: today, tomorrow, this weekend (Sat) and next week (Mon)', () => {
+    assert.equal(quickDate('today', NOW), '2026-11-11');
+    assert.equal(quickDate('tomorrow', NOW), '2026-11-12');
+    assert.equal(quickDate('weekend', NOW), '2026-11-14');
+    assert.equal(quickDate('nextweek', NOW), '2026-11-16');
+    const sat = new Date(2026, 10, 14, 9), sun = new Date(2026, 10, 15, 9);
+    assert.equal(quickDate('weekend', sat), '2026-11-14');
+    assert.equal(quickDate('nextweek', sun), '2026-11-16');
+  });
+  test('dateLabel: Overdue, Today, Tomorrow, weekday within 6 days, else "14 Nov"', () => {
+    assert.equal(dateLabel('2026-11-10', NOW), 'Overdue');
+    assert.equal(dateLabel('2026-11-11', NOW), 'Today');
+    assert.equal(dateLabel('2026-11-12', NOW), 'Tomorrow');
+    assert.equal(dateLabel('2026-11-13', NOW), 'Fri');
+    assert.equal(dateLabel('2026-11-17', NOW), 'Tue');
+    assert.equal(dateLabel('2026-11-18', NOW), '18 Nov');
+    assert.equal(dateLabel('2026-12-14', NOW), '14 Dec');
+  });
+  test('upcoming lists open tasks dated in the next 7 days, sorted by date', () => {
+    const s = blank();
+    s.tasks = [t('sat', 'master', '2026-11-14'), t('tom', 'master', '2026-11-12'), t('far', 'master', '2026-11-19'),
+      t('wk7', 'master', '2026-11-18'), t('in', 'today', '2026-11-13'), t('fin', 'done', '2026-11-13'), t('now', 'master', k(0))];
+    assert.deepEqual(upcoming(s, NOW).map(x => x.id), ['tom', 'sat', 'wk7']);
   });
 });
 

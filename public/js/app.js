@@ -5,7 +5,8 @@ import {
 } from './config.js';
 import {
   dayStr, mondayStr, weekdayIndex, uid, esc, blank, normalize, rollover, daysLabel, nextNoteStatus,
-  weekTarget, goalLogs, countSince, goalStreak, toggleLog, historyByDay, routineConsistency
+  weekTarget, goalLogs, countSince, goalStreak, toggleLog, historyByDay, routineConsistency,
+  isDay, quickDate, dateLabel, upcoming
 } from './logic.js';
 const $ = s => document.querySelector(s);
 const today = () => dayStr();
@@ -98,11 +99,41 @@ const task = id => S.tasks.find(x => x.id === id);
 const open = () => S.tasks.filter(x => x.list !== 'done');
 const inToday = () => S.tasks.filter(x => x.list === 'today');
 const todayFull = () => inToday().length >= S.todayLimit;
-function addTask(title, where) {
+function addTask(title, where, date = null) {
   title = title.trim(); if (!title) return;
+  if (!isDay(date)) date = null;
   let list = where === 'today' ? 'today' : 'master';
-  if (list === 'today' && todayFull()) { toast(`Today is full. Saved to All tasks.`); list = 'master'; }
-  S.tasks.push({ id: uid(), title, size: 'M', list, week: where === 'week', steps: [], created: Date.now(), doneAt: null });
+  if (date) { list = date <= today() ? 'today' : 'master'; toast(list === 'today' ? 'Added to Today' : `Scheduled for ${dateLabel(date)}`); }
+  else if (list === 'today' && todayFull()) { toast(`Today is full. Saved to All tasks.`); list = 'master'; }
+  S.tasks.push({ id: uid(), title, size: 'M', list, week: where === 'week', steps: [], created: Date.now(), doneAt: null, date });
+}
+/* Scheduling. id '' means the task being typed in the sheet's add row. */
+function setTaskDate(id, d) {
+  if (!isDay(d)) return;
+  ui.dateOpen = null;
+  if (!id) { ui.newDate = d; renderKeep(); return; }
+  const x = task(id); if (!x) return;
+  x.date = d;
+  let msg = `Scheduled for ${dateLabel(d)}`;
+  if (x.list !== 'done') {
+    // A date of today (or earlier) is a plan for today, so it goes in even past the limit.
+    if (d <= today() && x.list !== 'today') { x.list = 'today'; msg = 'Added to Today'; }
+    else if (d > today() && (x.list === 'today' || x.list === 'nottoday')) { x.list = 'master'; ui.open[id] = false; msg = `Moved to ${dateLabel(d)}`; }
+  }
+  save(); render(); toast(msg);
+}
+function clearTaskDate(id) {
+  ui.dateOpen = null;
+  if (!id) { ui.newDate = null; renderKeep(); return; }
+  const x = task(id); if (!x) return;
+  x.date = null; save(); render(); toast('Date removed');
+}
+/** Re-render without losing what is typed in the sheet's add box. */
+function renderKeep() {
+  const inp = ui.sheet && $(`#add-${ui.sheet}`), v = inp ? inp.value : '';
+  render();
+  const again = ui.sheet && $(`#add-${ui.sheet}`);
+  if (again) { again.value = v; if (!ui.dateOpen) again.focus(); }
 }
 function pickToday(id) {
   const x = task(id); if (!x || x.list === 'today') return;
@@ -167,9 +198,28 @@ function render() {
   renderSheet();
 }
 
+const CAL = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>';
+/** Small date tag. `hideToday` skips the tag when it would only say "Today". */
+function dateTag(d, hideToday) {
+  if (!isDay(d)) return '';
+  const l = dateLabel(d);
+  if (hideToday && l === 'Today') return '';
+  return `<span class="tag${l === 'Overdue' ? ' overdue' : ''}" title="${esc(d)}">${esc(l)}</span>`;
+}
+/** Quick date chips. id '' = the new task in the add row. */
+function datePicker(id) {
+  const cur = id ? (task(id) || {}).date : ui.newDate;
+  const chips = [['today', 'Today'], ['tomorrow', 'Tomorrow'], ['weekend', 'This weekend'], ['nextweek', 'Next week']];
+  return `<div class="date-pick" role="group" aria-label="Choose a date">
+    ${chips.map(([k, l]) => { const d = quickDate(k); return `<button type="button" class="chip" data-act="set-date" data-id="${id}" data-q="${k}" aria-pressed="${cur === d}" title="${esc(d)}">${l}</button>`; }).join('')}
+    <label class="chip date-chip">Pick a date<input type="date" data-date-for="${id}" value="${isDay(cur) ? cur : ''}" aria-label="Pick a date"></label>
+    ${cur ? `<button type="button" class="chip muted" data-act="date-clear" data-id="${id}">Remove date</button>` : ''}
+  </div>`;
+}
+
 function todayRow(x) {
   const o = ui.open[x.id], sd = x.steps.filter(s => s.done).length;
-  const meta = [x.week ? 'Weekly goal' : '', x.steps.length ? `${sd} of ${x.steps.length} steps` : ''].filter(Boolean).join(' · ');
+  const meta = [dateTag(x.date, true), x.week ? 'Weekly goal' : '', x.steps.length ? `${sd} of ${x.steps.length} steps` : ''].filter(Boolean).join(' · ');
   return `<div class="row-wrap">
     <div class="row">
       <button class="check" data-act="finish" data-id="${x.id}" aria-label="Mark done: ${esc(x.title)}"></button>
@@ -181,9 +231,12 @@ function todayRow(x) {
       <form data-form="step" data-id="${x.id}" style="display:flex"><input class="inline-input" id="step-${x.id}" name="t" type="text" placeholder="+ Add a small step" autocomplete="off" style="font-size:14px"></form>
       <div class="textlinks">
         <button class="tl" data-act="five" data-id="${x.id}">5 min timer</button>
+        <button class="tl" data-act="date-open" data-id="${x.id}" aria-expanded="${ui.dateOpen === x.id}">${x.date ? 'Change date' : 'Set date'}</button>
+        ${x.date && ui.dateOpen !== x.id ? `<button class="tl muted" data-act="date-clear" data-id="${x.id}">Remove date</button>` : ''}
         <button class="tl muted" data-act="not-today" data-id="${x.id}">Not today</button>
         <button class="tl muted" data-act="unpick" data-id="${x.id}">Remove</button>
-      </div></div>` : ''}
+      </div>
+      ${ui.dateOpen === x.id ? datePicker(x.id) : ''}</div>` : ''}
   </div>`;
 }
 
@@ -210,10 +263,26 @@ function viewHome() {
       ${addRow}
     </div>
     <button class="stuck" data-act="five">Feeling stuck? <b>Start a 5 minute timer</b></button>
+    ${comingUp()}
     ${done.length ? `<h2><span>Done</span><span class="num">${done.length}</span></h2><div class="group">${done.map(x => `<div class="row done"><button class="check on" data-act="undone" data-id="${x.id}" aria-label="Undo: ${esc(x.title)}"></button><div class="row-body"><div class="title">${esc(x.title)}</div></div></div>`).join('')}</div>` : ''}
     ${skipped.length ? `<h2><span>Not today</span><span>Back in All tasks tomorrow</span></h2><div class="group">${skipped.map(x => `<div class="row"><div class="row-body"><div class="title">${esc(x.title)}</div></div><button class="pill plain" data-act="pick" data-id="${x.id}">Do today</button></div>`).join('')}</div>` : ''}
     <div class="limit"><span>Backup and settings</span><button class="pill plain" data-sheet="settings">Open</button></div>
     <div class="limit" style="margin-top:14px"><span>Max tasks per day</span><div class="seg" role="group" aria-label="Max tasks per day">${[3, 4, 5].map(n => `<button data-limit="${n}" aria-pressed="${S.todayLimit === n}">${n}</button>`).join('')}</div></div>`;
+}
+
+/* Unfinished dated tasks for the next 7 days, grouped by day label. Hidden when empty. */
+function comingUp() {
+  const all = upcoming(S), MAX = 5;
+  if (!all.length) return '';
+  let last = null;
+  const rows = all.slice(0, MAX).map(x => {
+    const l = dateLabel(x.date), headRow = l !== last ? `<div class="day-head">${esc(l)}</div>` : '';
+    last = l;
+    return `${headRow}<div class="row"><div class="row-body"><div class="title">${esc(x.title)}</div>${x.week ? '<div class="meta">Weekly goal</div>' : ''}</div><button class="pill" data-act="pick" data-id="${x.id}">+ Today</button></div>`;
+  }).join('');
+  const more = all.length - MAX;
+  return `<h2><span>Coming up</span><span>Next 7 days</span></h2>
+    <div class="group coming">${rows}${more > 0 ? `<button class="row more" data-sheet="all">${more} more in All tasks ›</button>` : ''}</div>`;
 }
 
 function routineSection() {
@@ -272,20 +341,26 @@ function renderSheet() {
   if (ui.sheet === 'settings') return renderSettingsSheet(slot);
   const isWeek = ui.sheet === 'week';
   const rows = open().filter(x => isWeek ? x.week : true).sort((a, b) => (a.list === 'today') - (b.list === 'today') || a.created - b.created);
-  const row = x => `<div class="row">
-      <div class="row-body"><div class="title">${esc(x.title)}</div>${!isWeek && x.week ? '<div class="meta">Weekly goal</div>' : ''}</div>
+  const row = x => `<div class="row-wrap"><div class="row">
+      <div class="row-body"><div class="title">${esc(x.title)}</div><div class="meta meta-line">${dateTag(x.date)}${!isWeek && x.week ? '<span>Weekly goal</span>' : ''}<button class="tl sm" data-act="date-open" data-id="${x.id}" aria-expanded="${ui.dateOpen === x.id}">${x.date ? 'Change date' : 'Set date'}</button></div></div>
       ${x.list === 'today' ? '<span class="in-today">In Today ✓</span>' : `<button class="pill" data-act="pick" data-id="${x.id}">+ Today</button>`}
       ${isWeek ? `<button class="icon-btn" data-act="off-week" data-id="${x.id}" aria-label="Remove from weekly goals" title="Remove from week">−</button>`
                : `${x.week ? '' : `<button class="pill plain" data-act="to-week" data-id="${x.id}">+ Week</button>`}<button class="icon-btn" data-act="del-task" data-id="${x.id}" aria-label="Delete task" title="Delete">×</button>`}
-    </div>`;
+    </div>${ui.dateOpen === x.id ? datePicker(x.id) : ''}</div>`;
+  const empty = `<div class="empty"><b>${isWeek ? 'No weekly goals yet' : 'No tasks yet'}</b>${isWeek ? 'Add one below, or tap + Week in All tasks.' : 'Add everything on your mind below.'}</div>`;
+  const addRow = `<form class="row add-row" data-form="task" data-where="${isWeek ? 'week' : 'all'}"><span class="plus" aria-hidden="true">+</span><input class="inline-input" id="add-${ui.sheet}" name="t" type="text" placeholder="${isWeek ? 'Add a weekly goal' : 'Add a task'}" autocomplete="off">${dateTag(ui.newDate)}<button type="button" class="icon-btn cal${ui.newDate ? ' on' : ''}" data-act="date-open" data-id="" aria-expanded="${ui.dateOpen === 'new'}" aria-label="${ui.newDate ? 'Change date' : 'Set a date'}" title="Set a date">${CAL}</button></form>${ui.dateOpen === 'new' ? `<div class="add-pick">${datePicker('')}</div>` : ''}`;
+  // All tasks: dated tasks first (by date), then the rest. Weekly goals keep one list.
+  const dated = isWeek ? [] : rows.filter(x => x.date).sort((a, b) => a.date.localeCompare(b.date) || a.created - b.created);
+  const undated = isWeek ? rows : rows.filter(x => !x.date);
+  const body = dated.length
+    ? `<h2 style="margin-top:4px"><span>Scheduled</span><span class="num">${dated.length}</span></h2><div class="group">${dated.map(row).join('')}</div>
+       <h2><span>No date</span><span class="num">${undated.length}</span></h2><div class="group">${undated.map(row).join('')}${addRow}</div>`
+    : `<div class="group">${undated.map(row).join('') || empty}${addRow}</div>`;
   slot.innerHTML = `<div class="sheet-wrap" data-act="close-sheet"><div class="sheet${ui.sheetAnim ? ' anim' : ''}" role="dialog" aria-modal="true" aria-label="${isWeek ? 'Weekly goals' : 'All tasks'}">
     <div class="grab"></div>
     <div class="sheet-head"><h1>${isWeek ? 'Weekly goals' : 'All tasks'}</h1><button class="done-btn" data-act="close-sheet">Done</button></div>
     <p class="sub" style="margin:0 0 16px">${isWeek ? 'What you want to finish this week.' : 'Everything on your plate.'} Today: ${inToday().length} of ${S.todayLimit} picked.</p>
-    <div class="group">
-      ${rows.map(row).join('') || `<div class="empty"><b>${isWeek ? 'No weekly goals yet' : 'No tasks yet'}</b>${isWeek ? 'Add one below, or tap + Week in All tasks.' : 'Add everything on your mind below.'}</div>`}
-      <form class="row add-row" data-form="task" data-where="${isWeek ? 'week' : 'all'}"><span class="plus" aria-hidden="true">+</span><input class="inline-input" id="add-${ui.sheet}" name="t" type="text" placeholder="${isWeek ? 'Add a weekly goal' : 'Add a task'}" autocomplete="off"></form>
-    </div>
+    ${body}
   </div></div>`;
   slot.querySelector('.sheet').scrollTop = scroll;
   ui.sheetAnim = false;
@@ -498,11 +573,13 @@ function viewGoalHistory() {
 
 /* ---------- events ---------- */
 document.addEventListener('click', e => {
-  if (e.target.classList && e.target.classList.contains('sheet-wrap')) { ui.sheet = null; render(); return; }
+  if (e.target.classList && e.target.classList.contains('sheet-wrap')) { ui.sheet = null; ui.dateOpen = null; ui.newDate = null; render(); return; }
+  // Opens the native date picker on desktop too (phones open it on tap anyway).
+  if (e.target.matches && e.target.matches('input[type="date"]')) { try { e.target.showPicker(); } catch (er) {} return; }
   const b = e.target.closest('button'); if (!b) return;
   if (b.dataset.goal) { ui.tab = 'goals'; ui.goalView = null; ui.goalId = b.dataset.goal; render(); window.scrollTo(0, 0); return; }
   if (b.dataset.tab) { ui.goalId = null; ui.goalView = null; ui.tab = b.dataset.tab; try { history.replaceState(null, '', '#' + ui.tab); } catch (er) {} render(); window.scrollTo(0, 0); return; }
-  if (b.dataset.sheet) { ui.sheet = b.dataset.sheet; ui.sheetAnim = true; render(); return; }
+  if (b.dataset.sheet) { ui.sheet = b.dataset.sheet; ui.sheetAnim = true; ui.dateOpen = null; ui.newDate = null; render(); return; }
   if (b.dataset.cseg) { ui.capSeg = b.dataset.cseg; render(); return; }
   if (b.dataset.limit) { S.todayLimit = +b.dataset.limit; save(); render(); return; }
   const id = b.dataset.id;
@@ -519,7 +596,10 @@ document.addEventListener('click', e => {
     case 'import': { const v = ($('#import-text') || {}).value || ''; try { const r = JSON.parse(v); if (!r || r.v !== 1) throw 0; ui.importData = v; ui.importConfirm = true; render(); $('#import-text').value = v; } catch (er) { toast("That doesn't look like Focus Board data"); } break; }
     case 'import-cancel': ui.importConfirm = false; ui.importData = null; render(); break;
     case 'import-yes': { try { const r = normalize(JSON.parse(ui.importData)); S = r; ui.importConfirm = false; ui.importData = null; ui.sheet = null; save(); render(); toast('Data imported'); } catch (er) { toast('Import failed'); } break; }
-    case 'close-sheet': ui.exportShown = false; ui.importConfirm = false; ui.sheet = null; render(); break;
+    case 'date-open': { const k = id || 'new'; ui.dateOpen = ui.dateOpen === k ? null : k; renderKeep(); break; }
+    case 'set-date': setTaskDate(id, quickDate(b.dataset.q)); break;
+    case 'date-clear': clearTaskDate(id); break;
+    case 'close-sheet': ui.exportShown = false; ui.dateOpen = null; ui.newDate = null; ui.importConfirm = false; ui.sheet = null; render(); break;
     case 'finish': finish(id); break;
     case 'undone': { const x = task(id); if (x) { x.list = 'today'; x.doneAt = null; x.doneDay = null; save(); render(); } break; }
     case 'toggle': ui.open[id] = !ui.open[id]; render(); break;
@@ -549,14 +629,15 @@ document.addEventListener('click', e => {
     case 'undo': if (undoState) { S = normalize(JSON.parse(undoState)); undoState = null; save(); render(); $('#toast-slot').innerHTML = ''; } break;
   }
 });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && ui.sheet) { ui.sheet = null; render(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && ui.sheet) { ui.sheet = null; ui.dateOpen = null; ui.newDate = null; render(); } });
+document.addEventListener('change', e => { const el = e.target; if (el.matches && el.matches('input[data-date-for]') && el.value) setTaskDate(el.dataset.dateFor, el.value); });
 document.addEventListener('submit', e => {
   const f = e.target.closest('form'); if (!f) return;
   e.preventDefault();
   const fd = new FormData(f), t = String(fd.get('t') || '').trim(), kind = f.dataset.form;
   if (!t) return;
   const refocus = f.querySelector('[name=t]').id;
-  if (kind === 'task') addTask(t, f.dataset.where);
+  if (kind === 'task') { addTask(t, f.dataset.where, f.dataset.where === 'today' ? null : ui.newDate); ui.newDate = null; ui.dateOpen = null; }
   else if (kind === 'step') { const x = task(f.dataset.id); if (x) x.steps.push({ id: uid(), t, done: false }); }
   else if (kind === 'note') S.notes.push({ id: uid(), kind: ui.capSeg, text: t, created: Date.now(), status: ui.capSeg === 'idea' ? 'new' : 'want' });
   else if (kind === 'routine') { if (!ui.newDays.length) { toast('Pick at least one day'); return; } S.routines.push({ id: uid(), title: t, days: ui.newDays.slice().sort(), created: Date.now() }); ui.newDays = [0,1,2,3,4,5,6]; }

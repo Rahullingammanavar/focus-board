@@ -99,6 +99,78 @@ describe('Today', () => {
   });
 });
 
+describe('Scheduled tasks', () => {
+  test('a task for Tomorrow waits in Coming up, then moves into Today the next day', async () => {
+    // Wednesday 11 Nov 2026, 10:00 local time. setFixedTime fakes Date only; timers keep running.
+    await page.clock.setFixedTime(new Date(2026, 10, 11, 10, 0));
+    await open();
+    await page.click('[data-sheet="all"]');
+    await page.fill('#add-all', 'Book dentist');
+    await page.click('form[data-where="all"] [data-act="date-open"]');
+    await page.click('.add-pick [data-q="tomorrow"]');
+    assert.equal(await page.inputValue('#add-all'), 'Book dentist', 'typed text is kept');
+    await page.press('#add-all', 'Enter');
+    assert.match(await text('.sheet'), /Scheduled[\s\S]*Book dentist[\s\S]*Tomorrow/);
+    await closeSheet();
+    assert.match(await text('#view'), /Nothing planned yet/);
+    assert.match(await text('#view'), /Coming up[\s\S]*Tomorrow[\s\S]*Book dentist/);
+
+    await page.clock.setFixedTime(new Date(2026, 10, 12, 9, 0));
+    await open();
+    assert.match(await text('#view'), /To do[\s\S]*Book dentist/);
+    assert.doesNotMatch(await text('#view'), /Coming up/);
+    assert.equal(await page.locator('[data-act="finish"]').count(), 1);
+  });
+
+  test('a date of today puts the task straight into Today, even when Today is full', async () => {
+    await page.click('[data-limit="3"]');
+    for (const t of ['A', 'B', 'C']) await typeEnter('#add-today', t);
+    await addToAll('Pay rent');
+    await page.locator('.row', { hasText: 'Pay rent' }).locator('[data-act="date-open"]').click();
+    await page.click('.sheet .date-pick [data-q="today"]');
+    assert.match(await text('.sheet'), /Pay rent[\s\S]*In Today/);
+    await closeSheet();
+    assert.match(await text('#view'), /To do[\s\S]*Pay rent/);
+    assert.match(await text('.progress'), /4\/3 spots/);
+  });
+
+  test('change a date from Today, pull it back early, and remove the date', async () => {
+    await typeEnter('#add-today', 'Water plants');
+    await page.click('[data-act="toggle"]');
+    await page.click('.expand [data-act="date-open"]');
+    // the native picker: any day 3 days from now
+    const later = await page.evaluate(() => { const d = new Date(); d.setDate(d.getDate() + 3); return new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); });
+    await page.fill('.expand input[type="date"]', later);
+    assert.match(await text('#view'), /Nothing planned yet/);
+    assert.match(await text('#view'), /Coming up[\s\S]*Water plants/);
+    await page.locator('.coming [data-act="pick"]').click();
+    assert.match(await text('#view'), /To do[\s\S]*Water plants/);
+    assert.doesNotMatch(await text('#view'), /Coming up/);
+
+    await page.click('[data-sheet="all"]');
+    assert.match(await text('.sheet'), /Scheduled/);
+    await page.locator('.sheet .row', { hasText: 'Water plants' }).locator('[data-act="date-open"]').click();
+    await page.click('.sheet .date-pick [data-act="date-clear"]');
+    const sheet = await text('.sheet');
+    assert.doesNotMatch(sheet, /Scheduled/);
+    assert.match(sheet, /Set date/);
+    assert.equal(await page.locator('.sheet .tag').count(), 0);
+  });
+
+  test('overdue tasks get an Overdue tag', async () => {
+    await page.evaluate(() => {
+      const s = JSON.parse(localStorage.getItem('focus-board-local-v1'));
+      s.tasks.push({ id: 'od', title: 'Old plan', list: 'nottoday', week: false, steps: [], created: 1, doneAt: null, date: '2020-01-01' });
+      localStorage.setItem('focus-board-local-v1', JSON.stringify(s));
+    });
+    await open();
+    await page.click('[data-sheet="all"]');
+    assert.equal(await text('.sheet .tag.overdue'), 'Overdue');
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert.ok(overflow <= 0, `sheet scrolls sideways by ${overflow}px`);
+  });
+});
+
 describe('Daily tasks', () => {
   test('a daily task shows on its days and can be ticked', async () => {
     await page.click('[data-sheet="routine"]');
@@ -213,6 +285,13 @@ describe('Backup', () => {
 describe('Layout', () => {
   test('no sideways scrolling on a phone screen, on any tab', async () => {
     await typeEnter('#add-today', 'A very long task title that keeps going and going without any breaks at all');
+    await page.click('[data-sheet="all"]');
+    await page.fill('#add-all', 'Another very long scheduled task title that keeps going and going');
+    await page.click('form[data-where="all"] [data-act="date-open"]');
+    await page.click('.add-pick [data-q="tomorrow"]');
+    await page.press('#add-all', 'Enter');
+    await closeSheet();
+    assert.match(await text('#view'), /Coming up/);
     for (const t of ['home', 'capture', 'goals', 'history']) {
       await tab(t);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);

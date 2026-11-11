@@ -12,6 +12,7 @@ Focus Board is a personal, ADHD-friendly daily planner for one user (Rahul). It 
 ## Features (all already built and tested)
 
 - **Today**: 3–5 tasks (limit 3/4/5), picked from *Weekly goals* or *All tasks*. Tiny steps, "Not today", 5-minute timer, done list, progress bar.
+- **Scheduled tasks**: a task can have a date (quick chips Today / Tomorrow / This weekend (Sat) / Next week (Mon), or a native date picker) from the add row in All tasks / Weekly goals, sheet rows (Set date / Change date) and the ⋯ options on Today. Tags: Today, Tomorrow, weekday within 6 days, else "14 Nov"; past dates show "Overdue" in muted red. A date of today (or earlier) puts the task straight into Today. Each day `rollover()` moves unfinished tasks dated today or earlier into Today, even past the daily limit (the limit still blocks manual adds); "Not today" tasks still go back to All tasks first. Today shows "Coming up" (next 7 days, max 5 rows, "+ Today" to pull one in early); All tasks lists "Scheduled" (by date) then "No date".
 - **Daily tasks**: habits that repeat on chosen weekdays; ticked per day.
 - **Capture**: Realizations, Ideas (status New → Started → Done → Dropped), Learn (Want → Learning → Learned). A note can become a task.
 - **Goals**: grouped by life area (Health, Money, Study, Career, Personal + custom). Each goal has a detail page: regular steps (daily or 1–5× a week, ticked per day), one-time steps, stats, a 30-day chart, "Mark as achieved". A Goal history page shows achieved goals and steps per week.
@@ -25,11 +26,11 @@ Focus Board is a personal, ADHD-friendly daily planner for one user (Rahul). It 
 | `public/index.html` | Page shell, loads `css/styles.css` and `js/app.js` (ES module) |
 | `public/css/styles.css` | All styles. Light theme only, white background, blue accent `#2F5BEA` |
 | `public/js/config.js` | Firebase config (not secret), constants, `LOCAL_ONLY` flag |
-| `public/js/logic.js` | Pure functions (dates, normalize/migrate, rollover, goals, history). No DOM. |
+| `public/js/logic.js` | Pure functions (dates, scheduling: `quickDate`/`dateLabel`/`upcoming`, normalize/migrate, rollover, goals, history). No DOM. |
 | `public/js/firebase-sync.js` | Google sign-in + Firestore sync via the Firebase JS SDK 10.12.2 from gstatic CDN |
 | `public/js/app.js` | State, rendering (template strings), event delegation via `data-act` / `data-tab` / `data-sheet` / `data-goal` |
-| `tests/unit/logic.test.js` | 20 unit tests, `node:test` |
-| `tests/e2e/app.test.js` | 15 browser tests, Playwright (Chromium) + `node:test`, run against `?local` mode |
+| `tests/unit/logic.test.js` | 28 unit tests, `node:test` |
+| `tests/e2e/app.test.js` | 19 browser tests, Playwright (Chromium) + `node:test`, run against `?local` mode |
 | `scripts/serve.mjs` | Zero-dependency static server (port 4173) |
 | `firestore.rules` | Each signed-in user may only read/write `users/{their uid}` |
 | `firebase.json`, `.firebaserc` | Hosting serves `public/`; rules file; default project |
@@ -41,7 +42,8 @@ One Firestore document per user: `users/{uid}` = `{ savedAt: number, state: stri
 
 ```
 { v: 1, savedAt, todayLimit, lastRollover, areas: string[],
-  tasks:    [{ id, title, size, list: 'today'|'master'|'nottoday'|'done', week: bool, steps: [{id,t,done}], created, doneAt, doneDay }],
+  tasks:    [{ id, title, size, list: 'today'|'master'|'nottoday'|'done', week: bool, steps: [{id,t,done}], created, doneAt, doneDay,
+               date: 'YYYY-MM-DD' | null /* scheduled day; normalize() sets null on older tasks */ }],
   routines: [{ id, title, days: number[] /* 0=Mon..6=Sun */, created }],
   routineDone: { 'YYYY-MM-DD': [routineId] },
   notes:    [{ id, kind: 'realization'|'idea'|'learn', text, status, created }],
@@ -74,7 +76,7 @@ npm run test:all
 
 ## Setup tasks (do these in order, check with the user between steps)
 
-1. **Check tools**: Node ≥ 20, git, and `gh` (GitHub CLI) if available. Then `npm install`, `npx playwright install chromium`, `npm run test:all`, which must show 35 passing.
+1. **Check tools**: Node ≥ 20, git, and `gh` (GitHub CLI) if available. Then `npm install`, `npx playwright install chromium`, `npm run test:all`, which must show 47 passing (28 unit + 19 browser).
 2. **Push to GitHub**: `git init`, commit everything, `git branch -M main`, add remote `https://github.com/Rahullingammanavar/focus-board.git`, push. If the remote already has a README commit, `git pull --rebase origin main` first (or ask the user before force-pushing). Make sure `node_modules/` is not committed.
 3. **Firebase CLI**: `npm install -g firebase-tools`, `firebase login` (the user signs in in the browser), `firebase use my-list-179f0`.
 4. **Ask the user to confirm in the Firebase console** (CLI cannot do these):

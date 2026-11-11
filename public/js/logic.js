@@ -35,6 +35,7 @@ export function normalize(o) {
   s.tasks.forEach(t => {
     if (t.list === 'week') { t.list = 'master'; t.week = true; } // v1 had a separate Weekly list
     t.steps = t.steps || [];
+    if (!isDay(t.date)) t.date = null; // scheduled day, added later: old tasks have none
   });
   s.notes.forEach(n => {
     if (n.kind === 'idea' && !IDEA_NEXT[n.status]) n.status = 'new';
@@ -47,19 +48,66 @@ export function normalize(o) {
 /**
  * Start-of-day housekeeping. Mutates `s`, returns true if anything ran.
  * - "Not today" tasks go back to All tasks
+ * - unfinished tasks scheduled for today or earlier move into Today (even past the limit)
  * - finished tasks and daily-task ticks older than KEEP_HISTORY_DAYS are removed
  * Unfinished Today tasks stay in Today.
  */
 export function rollover(s, now = new Date()) {
   const t = dayStr(now);
   if (s.lastRollover === t) return false;
-  s.tasks.forEach(x => { if (x.list === 'nottoday') x.list = 'master'; });
+  const skipped = s.tasks.filter(x => x.list === 'nottoday');
+  skipped.forEach(x => { x.list = 'master'; });
+  // Planned on purpose, so this may go over the daily limit. Tasks skipped with
+  // "Not today" go back to All tasks first, like any other skipped task.
+  s.tasks.forEach(x => { if (x.list === 'master' && isDay(x.date) && x.date <= t && !skipped.includes(x)) x.list = 'today'; });
   const cutoff = now.getTime() - KEEP_HISTORY_DAYS * DAY_MS;
   s.tasks = s.tasks.filter(x => !(x.list === 'done' && x.doneAt < cutoff));
   const oldest = dayStr(new Date(cutoff));
   Object.keys(s.routineDone).forEach(k => { if (k < oldest) delete s.routineDone[k]; });
   s.lastRollover = t;
   return true;
+}
+
+/* ---------- scheduled dates ---------- */
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** True for a 'YYYY-MM-DD' string. */
+export const isDay = d => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
+
+const utc = k => Date.UTC(+k.slice(0, 4), +k.slice(5, 7) - 1, +k.slice(8, 10));
+
+/** 'YYYY-MM-DD' plus `n` days (timezone safe). */
+export const addDays = (k, n) => new Date(utc(k) + n * DAY_MS).toISOString().slice(0, 10);
+
+/** Whole days from `a` to `b` (both 'YYYY-MM-DD'). */
+export const daysBetween = (a, b) => Math.round((utc(b) - utc(a)) / DAY_MS);
+
+/** Date for a quick chip: 'today' | 'tomorrow' | 'weekend' (Saturday) | 'nextweek' (next Monday). */
+export function quickDate(kind, now = new Date()) {
+  const t = dayStr(now), wd = weekdayIndex(now);
+  if (kind === 'tomorrow') return addDays(t, 1);
+  if (kind === 'weekend') return wd >= 5 ? t : addDays(t, 5 - wd); // on Sat/Sun it is already the weekend
+  if (kind === 'nextweek') return addDays(t, 7 - wd);
+  return t;
+}
+
+/** Short tag for a scheduled day: Overdue, Today, Tomorrow, a weekday within 6 days, else '14 Nov'. */
+export function dateLabel(d, now = new Date()) {
+  const n = daysBetween(dayStr(now), d);
+  if (n < 0) return 'Overdue';
+  if (n === 0) return 'Today';
+  if (n === 1) return 'Tomorrow';
+  if (n <= 6) return DAY_NAMES[(utc(d) / DAY_MS + 3) % 7]; // 1 Jan 1970 was a Thursday (index 3)
+  return `${+d.slice(8, 10)} ${MONTHS[+d.slice(5, 7) - 1]}`;
+}
+
+/** Unfinished tasks scheduled after today and within `days` days, not already in Today. Sorted by date. */
+export function upcoming(s, now = new Date(), days = 7) {
+  const t = dayStr(now), end = addDays(t, days);
+  return s.tasks
+    .filter(x => x.list !== 'done' && x.list !== 'today' && isDay(x.date) && x.date > t && x.date <= end)
+    .sort((a, b) => a.date.localeCompare(b.date) || (a.created || 0) - (b.created || 0));
 }
 
 /** Human label for a set of weekday indexes. */

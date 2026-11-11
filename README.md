@@ -7,6 +7,7 @@ A simple, ADHD-friendly daily planner. Pick a few things for today, keep weekly 
 ## Features
 
 - **Today**: 3 to 5 tasks at a time, picked from *Weekly goals* or *All tasks*. Tiny steps, a "Not today" option and a 5-minute timer for when you feel stuck.
+- **Scheduled tasks**: give a task a date (Today, Tomorrow, This weekend, Next week or any day) and it moves into Today on that day by itself. Today shows what is *Coming up* in the next 7 days, All tasks lists scheduled tasks first, and missed dates are tagged *Overdue*.
 - **Daily tasks**: habits that repeat on the days you choose (for example Mon, Wed, Fri).
 - **Capture**: realizations, ideas (New → Started → Done → Dropped) and things to learn.
 - **Goals**: grouped by area (Health, Money, Study, Career, Personal, plus your own). Each goal has its own page with regular steps (daily or N× a week), one-time steps, a streak and a 30-day chart. Goal history shows what you achieved.
@@ -35,7 +36,7 @@ public/                  ← everything that gets deployed
   index.html             page shell
   css/styles.css         all styles
   js/config.js           Firebase config and app constants
-  js/logic.js            pure logic (dates, rollover, goals, history); unit tested
+  js/logic.js            pure logic (dates, scheduling, rollover, goals, history); unit tested
   js/firebase-sync.js    Google sign-in and Firestore sync
   js/app.js              state, screens and event handling
   favicon.svg, manifest.webmanifest

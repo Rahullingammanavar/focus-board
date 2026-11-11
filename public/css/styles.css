@@ -116,6 +116,31 @@ h2{font-size:13px;font-weight:600;color:var(--muted);margin:32px 0 10px;display:
 .kind{font-size:11px;color:var(--faint);white-space:nowrap}
 .in-today{font-size:12px;color:var(--accent);font-weight:600;white-space:nowrap}
 
+/* scheduled dates */
+.row-wrap{border-top:1px solid var(--line)}
+.row-wrap:first-child{border-top:0}
+.row-wrap>.row{border-top:0}
+.row-wrap>.date-pick,.add-pick>.date-pick{padding:0 14px 14px}
+.add-pick{border-top:0}
+.tag{display:inline-block;font-size:11px;font-weight:600;line-height:1.5;color:var(--accent);background:var(--accent-soft);border-radius:6px;padding:0 7px;white-space:nowrap;vertical-align:1px}
+.tag.overdue{color:#B4473F;background:#FBEEEC}
+.meta-line{display:flex;align-items:center;gap:4px 10px;flex-wrap:wrap}
+.tl.sm{font-size:12px;color:var(--muted)}
+.date-pick{display:flex;flex-wrap:wrap;gap:6px}
+.chip{position:relative;border:1px solid var(--line);background:var(--bg);border-radius:99px;padding:5px 12px;font-size:13px;font-weight:500;color:var(--ink);white-space:nowrap;cursor:pointer;line-height:1.4}
+.chip:hover{border-color:var(--accent)}
+.chip[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.chip.muted{color:var(--muted)}
+.date-chip input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;border:0;padding:0}
+.date-chip:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.icon-btn.cal svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.icon-btn.cal.on,.icon-btn.cal[aria-expanded="true"]{color:var(--accent)}
+.add-row .tag{flex:none}
+.coming .day-head{padding:10px 14px 0;font-size:12px;font-weight:600;color:var(--muted);border-top:1px solid var(--line)}
+.coming .day-head:first-child{border-top:0}
+.coming .day-head+.row{border-top:0;padding-top:8px}
+.row.more{width:100%;border-left:0;border-right:0;border-bottom:0;background:none;justify-content:center;color:var(--accent);font-size:13px;font-weight:600;padding:12px}
+
 .empty{padding:28px 18px;text-align:center;color:var(--muted);font-size:14px}
 .empty b{display:block;color:var(--ink);font-weight:600;margin-bottom:2px}
 
